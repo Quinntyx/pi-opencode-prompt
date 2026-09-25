@@ -167,6 +167,25 @@ class EmptyFooter implements Component {
   invalidate(): void {}
 }
 
+// ── Generic extension status items ──────────────────────────────────────────
+// Extensions can contribute items to the right-side status cluster without
+// this extension knowing about them. The protocol mirrors ctx.ui.setStatus()
+// (which is invisible here because this extension replaces the built-in
+// footer) but runs over the extension event bus:
+//
+//   `status-item`        payload { key: string, text: string | null }
+//                        Set (text non-empty) or clear (null/empty) the item
+//                        identified by `key`.
+//   `status-item:request` payload ignored
+//                        Emitted on session_start so extensions can re-publish
+//                        their current value (event registration order between
+//                        extensions is not guaranteed).
+//
+// Items are rendered sorted by key for a stable, deterministic order.
+
+const STATUS_EVENT = "status-item";
+const STATUS_REQUEST_EVENT = "status-item:request";
+
 const SENTINEL = "\x02";
 const PROBE = "\x01";
 
@@ -380,7 +399,7 @@ export default function (pi: ExtensionAPI) {
   let activeTui: TUI | undefined;
   let runStartedAt: number | undefined;
   let lastCompletion: string | undefined;
-  let routerStatus: string | undefined;
+  const statusItems = new Map<string, string>();
   let refreshBranch: (() => Promise<void>) | undefined;
 
   const stopSpinner = () => {
@@ -414,8 +433,12 @@ export default function (pi: ExtensionAPI) {
   pi.on("model_select", () => activeTui?.requestRender());
   pi.on("thinking_level_select", () => activeTui?.requestRender());
 
-  pi.events.on("deepseek-router:status", (data) => {
-    routerStatus = typeof data === "string" && data.length > 0 ? data : undefined;
+  pi.events.on(STATUS_EVENT, (data) => {
+    const item = data as { key?: unknown; text?: unknown } | undefined;
+    if (typeof item?.key !== "string" || item.key.length === 0) return;
+    const text = typeof item.text === "string" && item.text.length > 0 ? item.text : undefined;
+    if (text) statusItems.set(item.key, text);
+    else statusItems.delete(item.key);
     activeTui?.requestRender();
   });
   pi.on("context", (_event, ctx) => reconcileBacon(ctx));
@@ -430,7 +453,7 @@ export default function (pi: ExtensionAPI) {
     refreshBranch = undefined;
     runStartedAt = undefined;
     lastCompletion = undefined;
-    routerStatus = undefined;
+    statusItems.clear();
     stopBacon();
     baconRender = undefined;
     baconLastCwd = undefined;
@@ -447,7 +470,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => {
     ctx.ui.setWorkingVisible(false);
     ctx.ui.setFooter(() => new EmptyFooter());
-    pi.events.emit("deepseek-router:request", undefined);
+    pi.events.emit(STATUS_REQUEST_EVENT, undefined);
 
     let branch: string | undefined;
     refreshBranch = async () => {
@@ -594,7 +617,13 @@ export default function (pi: ExtensionAPI) {
             theme.fg("success", `saved ${formatTokens(tokensSaved)}`),
           );
         rightItems.push(theme.fg("muted", location));
-        if (routerStatus) rightItems.unshift(theme.fg("muted", routerStatus));
+        // Extension-contributed status items (see STATUS_EVENT above), sorted
+        // by key, at the front of the cluster.
+        for (const text of [...statusItems.entries()]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([, itemText]) => itemText)) {
+          rightItems.unshift(theme.fg("muted", text));
+        }
         const statusRight = rightItems.join(theme.fg("dim", " · "));
 
         const statusText = formatStatusRow(
