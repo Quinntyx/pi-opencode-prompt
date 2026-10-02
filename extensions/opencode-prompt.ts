@@ -9,6 +9,11 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import {
+  activityRefreshInterval,
+  getActivityApi,
+  renderActivityLabel,
+} from "../lib/activity.js";
 
 function formatStatusRow(left: string, right: string, width: number): string {
   if (width <= 0) return "";
@@ -401,27 +406,38 @@ export default function (pi: ExtensionAPI) {
   let lastCompletion: string | undefined;
   const statusItems = new Map<string, string>();
   let refreshBranch: (() => Promise<void>) | undefined;
+  let unsubscribeActivity: (() => void) | undefined;
 
   const stopSpinner = () => {
     if (spinnerTimer) clearInterval(spinnerTimer);
     spinnerTimer = undefined;
   };
 
+  const refreshActivity = () => {
+    const api = getActivityApi();
+    const working = isWorking || api?.getActivity().isWorking;
+    if (working && activeTui && !spinnerTimer) {
+      spinnerTimer = setInterval(() => {
+        spinnerIndex = (spinnerIndex + 1) % spinnerFrames.length;
+        activeTui?.requestRender();
+      }, activityRefreshInterval(api));
+      spinnerTimer.unref();
+    } else if (!working) {
+      stopSpinner();
+    }
+    activeTui?.requestRender();
+  };
+
   pi.on("agent_start", () => {
     isWorking = true;
     runStartedAt ??= Date.now();
     lastCompletion = undefined;
-    stopSpinner();
-    spinnerTimer = setInterval(() => {
-      spinnerIndex = (spinnerIndex + 1) % spinnerFrames.length;
-      activeTui?.requestRender();
-    }, 90);
-    activeTui?.requestRender();
+    refreshActivity();
   });
 
   pi.on("agent_settled", () => {
     isWorking = false;
-    stopSpinner();
+    refreshActivity();
     if (runStartedAt !== undefined) {
       lastCompletion = `Completed in ${formatDuration(Date.now() - runStartedAt)}`;
       runStartedAt = undefined;
@@ -448,6 +464,9 @@ export default function (pi: ExtensionAPI) {
   }
 
   pi.on("session_shutdown", () => {
+    unsubscribeActivity?.();
+    unsubscribeActivity = undefined;
+    isWorking = false;
     stopSpinner();
     activeTui = undefined;
     refreshBranch = undefined;
@@ -468,6 +487,9 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_start", (_event, ctx) => {
+    if (!ctx.hasUI) return;
+    unsubscribeActivity?.();
+    unsubscribeActivity = getActivityApi()?.subscribe?.(refreshActivity);
     ctx.ui.setWorkingVisible(false);
     ctx.ui.setFooter(() => new EmptyFooter());
     pi.events.emit(STATUS_REQUEST_EVENT, undefined);
@@ -496,12 +518,20 @@ export default function (pi: ExtensionAPI) {
       ) {
         super(tui, theme, keybindings, { paddingX: 0 });
         activeTui = tui;
+        refreshActivity();
       }
 
       render(width: number): string[] {
-        if (width < 8) return super.render(width);
-
         const theme = ctx.ui.theme;
+        const activity = renderActivityLabel(getActivityApi(), theme, isWorking);
+        const activityRow = activity && width > 0
+          ? truncateToWidth(`${theme.fg("accent", spinnerFrames[spinnerIndex])} ${activity}`, Math.max(0, width - 2))
+          : undefined;
+        const withActivity = (lines: string[]): string[] => activityRow
+          ? [`${" ".repeat(Math.min(2, width))}${activityRow}`, ...lines]
+          : lines;
+        if (width < 8) return withActivity(super.render(width));
+
         const thinking = pi.getThinkingLevel();
         const accentRail = theme.getThinkingBorderColor(thinking);
         const rail = "┃";
@@ -556,7 +586,7 @@ export default function (pi: ExtensionAPI) {
         const rawLines = super.render(editorWidth);
         this.borderColor = originalBorderColor;
 
-        if (rawLines.length < 3) return rawLines;
+        if (rawLines.length < 3) return withActivity(rawLines);
 
         // Find the bottom border (second SENTINEL)
         let bottomBorderIdx = -1;
@@ -579,6 +609,9 @@ export default function (pi: ExtensionAPI) {
           result.push(acLine + " ".repeat(gap));
         }
 
+        // ── Activity: transparent, full-width row immediately above the box ──
+        if (activityRow) result.push(`  ${activityRow}`);
+
         // ── Top vertical padding ──
         result.push(buildLine("", editorWidth));
 
@@ -590,16 +623,13 @@ export default function (pi: ExtensionAPI) {
         // ── Bottom vertical padding (between prompt and status) ──
         result.push(buildLine("", editorWidth));
 
-        // ── Status row: same bg + rail + padding, spinner on the left ──
-        const spinner = isWorking
-          ? `${theme.fg("accent", spinnerFrames[spinnerIndex])} `
-          : "";
+        // ── Status row: same bg + rail + padding ──
         const identity = formatModelIdentity(ctx.model);
         const model = theme.fg("muted", identity.name);
         const attribution = theme.fg("dim", identity.attribution);
         const reasoning = accentRail(theme.bold(thinking));
 
-        const statusLeft = `${spinner}${model}${attribution ? ` · ${attribution}` : ""} · ${reasoning}`;
+        const statusLeft = `${model}${attribution ? ` · ${attribution}` : ""} · ${reasoning}`;
         const cwd = formatCwd(ctx.cwd);
         const completion = lastCompletion ? lastCompletion : "";
         const location = `${cwd.leaf}${branch ? `:${branch}` : ""}`;
