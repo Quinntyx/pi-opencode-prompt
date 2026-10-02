@@ -2,11 +2,17 @@
 
 Provide an OpenCode-inspired Pi editor, status row, and working indicator.
 
-While the agent works, a single transparent activity row sits immediately above
-its prompt box. It uses [pi-activity](https://git.quinntyx.dev/quinntyx/pi-activity)'s
+While the agent works, a transparent activity row sits one blank line above its
+prompt box. It uses [pi-activity](https://git.quinntyx.dev/quinntyx/pi-activity)'s
 current label and shimmer painter, including the selected effort level's theme
-color. The spinner moves to this row; the row disappears when idle. No tool-call
-grouping or transcript rails are installed.
+color. Elapsed run time, total active session time, and the run's turn count are
+right-aligned. The original wave animation stays in the prompt's bottom status
+row beside the model identity.
+
+When a run finishes, the same row retains pi-tool-tree's summary: `✻ Agent took …`
+on the left and `Total time … · N turns` on the right. Session totals exclude idle
+time and include history restored by pi-activity. The next run replaces this
+summary. No tool-call grouping or transcript rails are installed.
 
 Load pi-activity before this package to enable activity labels and shimmer. Without
 it, the row falls back to a muted `working` label. The prompt subscribes to activity

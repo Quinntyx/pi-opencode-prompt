@@ -1,11 +1,26 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 
+export interface ActivityRunStats {
+  startedAt?: number | null;
+  elapsedMs: number;
+  turns: number;
+}
+
+export interface ActivitySnapshot {
+  isWorking: boolean;
+  label: string | null;
+  run?: ActivityRunStats;
+}
+
+export interface ActivityChange {
+  type: string;
+  run?: ActivityRunStats;
+}
+
 export interface ActivityApi {
-  getActivity(): {
-    isWorking: boolean;
-    label: string | null;
-  };
-  subscribe?(listener: () => void): () => void;
+  getActivity(): ActivitySnapshot;
+  getStats?(): { workedMs: number };
+  subscribe?(listener: (activity: ActivitySnapshot, change: ActivityChange) => void): () => void;
   shimmerText?(text: string, theme?: Theme): string;
   shimmerIntervalMs?: number;
 }

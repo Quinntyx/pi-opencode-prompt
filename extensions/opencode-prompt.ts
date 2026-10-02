@@ -13,6 +13,7 @@ import {
   activityRefreshInterval,
   getActivityApi,
   renderActivityLabel,
+  type ActivityRunStats,
 } from "../lib/activity.js";
 
 function formatStatusRow(left: string, right: string, width: number): string {
@@ -403,7 +404,10 @@ export default function (pi: ExtensionAPI) {
   let spinnerTimer: ReturnType<typeof setInterval> | undefined;
   let activeTui: TUI | undefined;
   let runStartedAt: number | undefined;
-  let lastCompletion: string | undefined;
+  let lastCompletion: (ActivityRunStats & { workedMs: number }) | undefined;
+  let completedRun: ActivityRunStats | undefined;
+  let runTurns = 0;
+  let sessionWorkedMs = 0;
   const statusItems = new Map<string, string>();
   let refreshBranch: (() => Promise<void>) | undefined;
   let unsubscribeActivity: (() => void) | undefined;
@@ -430,18 +434,31 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("agent_start", () => {
     isWorking = true;
-    runStartedAt ??= Date.now();
+    if (runStartedAt === undefined) {
+      runStartedAt = Date.now();
+      runTurns = 0;
+      completedRun = undefined;
+      sessionWorkedMs = getActivityApi()?.getStats?.().workedMs ?? sessionWorkedMs;
+    }
     lastCompletion = undefined;
     refreshActivity();
   });
 
+  pi.on("turn_start", () => { runTurns++; });
+
   pi.on("agent_settled", () => {
     isWorking = false;
-    refreshActivity();
-    if (runStartedAt !== undefined) {
-      lastCompletion = `Completed in ${formatDuration(Date.now() - runStartedAt)}`;
+    if (completedRun || runStartedAt !== undefined) {
+      const run = completedRun ?? {
+        elapsedMs: Math.max(0, Date.now() - runStartedAt!),
+        turns: runTurns,
+      };
+      sessionWorkedMs = getActivityApi()?.getStats?.().workedMs ?? sessionWorkedMs + run.elapsedMs;
+      lastCompletion = { ...run, workedMs: sessionWorkedMs };
       runStartedAt = undefined;
+      completedRun = undefined;
     }
+    refreshActivity();
     void refreshBranch?.();
     activeTui?.requestRender();
   });
@@ -472,6 +489,9 @@ export default function (pi: ExtensionAPI) {
     refreshBranch = undefined;
     runStartedAt = undefined;
     lastCompletion = undefined;
+    completedRun = undefined;
+    runTurns = 0;
+    sessionWorkedMs = 0;
     statusItems.clear();
     stopBacon();
     baconRender = undefined;
@@ -489,7 +509,24 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => {
     if (!ctx.hasUI) return;
     unsubscribeActivity?.();
-    unsubscribeActivity = getActivityApi()?.subscribe?.(refreshActivity);
+    const api = getActivityApi();
+    const snapshot = api?.getActivity();
+    isWorking = false;
+    runStartedAt = snapshot?.isWorking ? snapshot.run?.startedAt ?? Date.now() : undefined;
+    runTurns = snapshot?.run?.turns ?? 0;
+    sessionWorkedMs = api?.getStats?.().workedMs ?? 0;
+    completedRun = undefined;
+    lastCompletion = undefined;
+    unsubscribeActivity = api?.subscribe?.((_activity, change) => {
+      if (change?.type === "run-start") {
+        sessionWorkedMs = api.getStats?.().workedMs ?? sessionWorkedMs;
+        completedRun = undefined;
+        lastCompletion = undefined;
+      } else if (change?.type === "run-end" && change.run) {
+        completedRun = { ...change.run };
+      }
+      refreshActivity();
+    });
     ctx.ui.setWorkingVisible(false);
     ctx.ui.setFooter(() => new EmptyFooter());
     pi.events.emit(STATUS_REQUEST_EVENT, undefined);
@@ -523,12 +560,35 @@ export default function (pi: ExtensionAPI) {
 
       render(width: number): string[] {
         const theme = ctx.ui.theme;
-        const activity = renderActivityLabel(getActivityApi(), theme, isWorking);
-        const activityRow = activity && width > 0
-          ? truncateToWidth(`${theme.fg("accent", spinnerFrames[spinnerIndex])} ${activity}`, Math.max(0, width - 2))
+        const api = getActivityApi();
+        const snapshot = api?.getActivity();
+        const working = isWorking || snapshot?.isWorking;
+        const activity = renderActivityLabel(api, theme, isWorking);
+        const run = activity ? snapshot?.run ?? {
+          elapsedMs: runStartedAt === undefined ? 0 : Math.max(0, Date.now() - runStartedAt),
+          turns: runTurns,
+        } : undefined;
+        const summary = run ? {
+          ...run,
+          // The provider stamps totals at final message_end, before run-end.
+          // Use the start-of-run baseline to avoid briefly counting it twice.
+          workedMs: sessionWorkedMs + run.elapsedMs,
+        } : lastCompletion;
+        const activityLeft = activity ?? (summary
+          ? theme.fg("muted", `✻ Agent took ${formatDuration(summary.elapsedMs)}`)
+          : undefined);
+        const activityRight = summary ? theme.fg("dim", [
+          ...(activity ? [`Elapsed ${formatDuration(summary.elapsedMs)}`] : []),
+          `Total time ${formatDuration(summary.workedMs)}`,
+          `${summary.turns} turn${summary.turns === 1 ? "" : "s"}`,
+        ].join(" · ")) : "";
+        const inset = Math.min(2, Math.floor(Math.max(0, width) / 2));
+        const padding = " ".repeat(inset);
+        const activityRow = activityLeft && width > 0
+          ? `${padding}${formatStatusRow(activityLeft, activityRight, width - inset * 2)}${padding}`
           : undefined;
         const withActivity = (lines: string[]): string[] => activityRow
-          ? [`${" ".repeat(Math.min(2, width))}${activityRow}`, ...lines]
+          ? [activityRow, "", ...lines]
           : lines;
         if (width < 8) return withActivity(super.render(width));
 
@@ -609,8 +669,8 @@ export default function (pi: ExtensionAPI) {
           result.push(acLine + " ".repeat(gap));
         }
 
-        // ── Activity: transparent, full-width row immediately above the box ──
-        if (activityRow) result.push(`  ${activityRow}`);
+        // ── Activity + run stats, separated from the prompt by one blank row ──
+        if (activityRow) result.push(activityRow, "");
 
         // ── Top vertical padding ──
         result.push(buildLine("", editorWidth));
@@ -623,22 +683,23 @@ export default function (pi: ExtensionAPI) {
         // ── Bottom vertical padding (between prompt and status) ──
         result.push(buildLine("", editorWidth));
 
-        // ── Status row: same bg + rail + padding ──
+        // ── Status row: same bg + rail + padding, original wave on the left ──
+        const spinner = working
+          ? `${theme.fg("accent", spinnerFrames[spinnerIndex])} `
+          : "";
         const identity = formatModelIdentity(ctx.model);
         const model = theme.fg("muted", identity.name);
         const attribution = theme.fg("dim", identity.attribution);
         const reasoning = accentRail(theme.bold(thinking));
 
-        const statusLeft = `${model}${attribution ? ` · ${attribution}` : ""} · ${reasoning}`;
+        const statusLeft = `${spinner}${model}${attribution ? ` · ${attribution}` : ""} · ${reasoning}`;
         const cwd = formatCwd(ctx.cwd);
-        const completion = lastCompletion ? lastCompletion : "";
         const location = `${cwd.leaf}${branch ? `:${branch}` : ""}`;
         const tokensSaved = readPtcTokensSaved();
 
         // Right-side status cluster: every item joined with " · " so spacing
         // is uniform regardless of which segments are present.
         const rightItems: string[] = [];
-        if (completion) rightItems.push(theme.fg("dim", completion));
         const baconSeg = renderBaconSegment(theme);
         if (baconSeg) rightItems.push(baconSeg);
         rightItems.push(theme.fg("dim", formatContext(ctx)));
