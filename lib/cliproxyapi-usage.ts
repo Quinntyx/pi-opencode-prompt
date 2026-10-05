@@ -16,6 +16,7 @@ export interface QuotaWindow {
 export interface RemainingQuota {
   five_hour: QuotaWindow;
   weekly: QuotaWindow;
+  routing_available?: boolean;
 }
 
 function percent(value: unknown): string {
@@ -24,7 +25,7 @@ function percent(value: unknown): string {
 }
 
 export function formatRemainingQuota(data: RemainingQuota | null): string {
-  return `5h ${percent(data?.five_hour?.total_percent)} (${percent(data?.five_hour?.current_percent)}) · wk ${percent(data?.weekly?.total_percent)} (${percent(data?.weekly?.current_percent)})`;
+  return `5h ${percent(data?.five_hour?.total_percent)} (${percent(data?.five_hour?.current_percent)}) · wk ${percent(data?.weekly?.total_percent)} (${percent(data?.weekly?.current_percent)})${data?.routing_available === false ? " · blocked" : ""}`;
 }
 
 // The private management credential must never be sent to a remote model URL.

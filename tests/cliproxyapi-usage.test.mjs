@@ -80,3 +80,13 @@ test("headless/other providers make no requests and remote endpoints never read 
  for(const options of [{hasUI:false},{provider:"openai-codex"}]) {const h=host(options);h.emit("session_start");await h.tick();assert.equal(h.calls.length,0);assert.equal(h.last,null);h.close();}
  const h=host({baseUrl:"https://remote.example/backend-api"});h.emit("session_start");await flush();assert.equal(h.calls.length,0);assert.equal(h.reads,0);h.close();
 });
+
+
+test("unused budgets are explicitly marked blocked when no account can route", async () => {
+ let blocked=true;
+ const h=host({fetch:async()=>({ok:true,json:async()=>({...snapshot,routing_available:!blocked})})});
+ h.emit("session_start");await flush();
+ assert.equal(h.last,"5h 225% (75%) · wk 187% (28%) · blocked");
+ blocked=false;await h.tick();
+ assert.equal(h.last,"5h 225% (75%) · wk 187% (28%)");h.close();
+});

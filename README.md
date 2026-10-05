@@ -41,7 +41,12 @@ When a `cliproxyapi` model is selected, the bottom status cluster shows
 enabled, distinct Codex subscriptions, after operator caps; the current shared
 50% + two 100% account setup has a maximum of 250% per window. Parentheses
 show the usable remainder on this session + model's actual affinity-bound account.
-They show `?` before the first routed request, not a guessed account. Stale or
+They show `?` before the first routed request, not a guessed account. Totals are
+unspent budgets, not a promise that every window can currently be used: a
+subscription may be blocked by its other window, a shared-account cap, or a
+model-specific cooldown. The footer appends `· blocked` when no account can
+currently route the selected model. The endpoint also reports separate
+`available_percent` values for immediately routable budgets. Stale or
 missing quota observations and connection failures also show `?`.
 
 The extension uses the public `status-item` event protocol and refreshes every
