@@ -23,7 +23,7 @@ const { default: extension } = await jiti.import("../extensions/opencode-prompt.
 const key = Symbol.for("pi-activity:api");
 const clean = (text) => text.replace(/\x1b\[[0-9;]*m/g, "");
 
-function host({ working = false, hasUI = true, provider = true, workedMs = 0 } = {}) {
+function host({ working = false, hasUI = true, provider = true, workedMs = 0, modelProvider = "test" } = {}) {
   let state = { isWorking: working, label: working ? "exploring" : null };
   let stats = { workedMs };
   let subscriber;
@@ -32,6 +32,7 @@ function host({ working = false, hasUI = true, provider = true, workedMs = 0 } =
   let editor;
   const painted = [];
   const events = new Map();
+  const statusBus = new Map();
   const theme = {
     fg: (_color, text) => `\x1b[38;5;123m${text}\x1b[39m`,
     bg: (_color, text) => `\x1b[48;5;235m${text}\x1b[49m`,
@@ -56,7 +57,7 @@ function host({ working = false, hasUI = true, provider = true, workedMs = 0 } =
   } else delete globalThis[key];
   const pi = {
     on: (name, listener) => events.set(name, listener),
-    events: { on() {}, emit() {} },
+    events: { on: (name, listener) => statusBus.set(name, listener), emit: (name, data) => statusBus.get(name)?.(data) },
     getThinkingLevel: () => "high",
     exec: async () => ({ stdout: "test-branch" }),
   };
@@ -65,7 +66,7 @@ function host({ working = false, hasUI = true, provider = true, workedMs = 0 } =
     hasUI,
     mode: "test",
     cwd: "/tmp",
-    model: { id: "test-model", provider: "test", contextWindow: 1000 },
+    model: { id: "test-model", provider: modelProvider, contextWindow: 1000 },
     getContextUsage: () => ({ tokens: 100, contextWindow: 1000, percent: 10 }),
     ui: {
       theme,
@@ -81,6 +82,7 @@ function host({ working = false, hasUI = true, provider = true, workedMs = 0 } =
     get renders() { return renders; },
     get unsubscribed() { return unsubscribed; },
     painted,
+    statusItem: (data) => statusBus.get("status-item")?.(data),
     theme,
     emit: (name) => events.get(name)?.({}, ctx),
     setActivity(next, change = { type: "label-change" }) { state = next; subscriber?.(state, change); },
@@ -218,4 +220,13 @@ test("autocomplete stays above the separated activity row", () => {
     CustomEditor.autocomplete = [];
     h.close();
   }
+});
+
+
+test("CLIProxyAPI attribution and generic quota item appear in the bottom status cluster",()=>{
+ const h=host({modelProvider:"cliproxyapi"});
+ h.statusItem({key:"cliproxyapi-quota",text:"5h 225% (75%) · wk 187% (28%)"});
+ const rows=h.editor.render(220).map(clean);
+ assert.ok(rows.some(row=>row.includes("CLIProxyAPI") && row.includes("5h 225% (75%) · wk 187% (28%)")),rows.join("\n"));
+ h.statusItem({key:"cliproxyapi-quota",text:null});assert.ok(!h.editor.render(220).map(clean).some(row=>row.includes("5h 225%")));h.close();
 });

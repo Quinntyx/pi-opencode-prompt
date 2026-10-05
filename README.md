@@ -33,3 +33,21 @@ node --test tests/*.test.mjs
 ```
 
 Set `PI_TEST_NPM_ROOT` if Pi is installed outside the default global npm root.
+
+## CLIProxyAPI quota footer
+
+When a `cliproxyapi` model is selected, the bottom status cluster shows
+`5h 225% (75%) · wk 187% (28%)`. Totals sum usable percentage points across
+enabled, distinct Codex subscriptions, after operator caps; the current shared
+50% + two 100% account setup has a maximum of 250% per window. Parentheses
+show the usable remainder on this session + model's actual affinity-bound account.
+They show `?` before the first routed request, not a guessed account. Stale or
+missing quota observations and connection failures also show `?`.
+
+The extension uses the public `status-item` event protocol and refreshes every
+five seconds, plus request/model/session boundaries. It requires the fork's
+`GET /v8/management/observability/quota/remaining` management endpoint and reads
+the management key from the private local CLIProxyAPI secrets file (never from
+tracked config). Requests are restricted to a loopback proxy URL and redirects
+are rejected. It stops polling and clears its item when another provider is
+selected or the session shuts down. Provider attribution renders as `CLIProxyAPI`.

@@ -115,6 +115,7 @@ function formatModelName(id: string): string {
 function formatProvider(provider: string | undefined): string {
   if (!provider) return "";
   if (provider === "openai" || provider === "openai-codex") return "OpenAI";
+  if (provider === "cliproxyapi") return "CLIProxyAPI";
   if (provider === "zai") return "Z.ai (GLM Coding Plan)";
   return provider.split(/[-_]/g).filter(Boolean).map(formatNamePart).join(" ");
 }
