@@ -11,12 +11,14 @@ const MIN_REFRESH_MS = 1_000;
 
 export interface QuotaWindow {
   total_percent: number | null;
+  available_percent: number | null;
   current_percent: number | null;
 }
 export interface RemainingQuota {
   five_hour: QuotaWindow;
   weekly: QuotaWindow;
   routing_available?: boolean;
+  current_available?: boolean | null;
 }
 
 function percent(value: unknown): string {
@@ -25,7 +27,11 @@ function percent(value: unknown): string {
 }
 
 export function formatRemainingQuota(data: RemainingQuota | null): string {
-  return `5h ${percent(data?.five_hour?.total_percent)} (${percent(data?.five_hour?.current_percent)}) · wk ${percent(data?.weekly?.total_percent)} (${percent(data?.weekly?.current_percent)})${data?.routing_available === false ? " · blocked" : ""}`;
+  // Unspent budgets can belong to accounts blocked by the other window or a
+  // routing limit. Display only capacity that can actually serve this model.
+  const total = (window: QuotaWindow | undefined) => data?.routing_available === false ? 0 : window?.available_percent;
+  const current = (window: QuotaWindow | undefined) => data?.current_available === false ? 0 : window?.current_percent;
+  return `5h ${percent(total(data?.five_hour))} (${percent(current(data?.five_hour))}) · wk ${percent(total(data?.weekly))} (${percent(current(data?.weekly))})${data?.routing_available === false ? " · blocked" : ""}`;
 }
 
 // The private management credential must never be sent to a remote model URL.
