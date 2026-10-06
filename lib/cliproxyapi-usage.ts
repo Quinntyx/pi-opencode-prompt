@@ -27,11 +27,10 @@ function percent(value: unknown): string {
 }
 
 export function formatRemainingQuota(data: RemainingQuota | null): string {
-  // Unspent budgets can belong to accounts blocked by the other window or a
-  // routing limit. Display only capacity that can actually serve this model.
-  const total = (window: QuotaWindow | undefined) => data?.routing_available === false ? 0 : window?.available_percent;
-  const current = (window: QuotaWindow | undefined) => data?.current_available === false ? 0 : window?.current_percent;
-  return `5h ${percent(total(data?.five_hour))} (${percent(current(data?.five_hour))}) · wk ${percent(total(data?.weekly))} (${percent(current(data?.weekly))})${data?.routing_available === false ? " · blocked" : ""}`;
+  // Five-hour capacity is immediately usable; weekly budget survives a
+  // temporary five-hour cooldown. Both are already adjusted for operator caps.
+  const currentFiveHour = data?.current_available === false ? 0 : data?.five_hour?.current_percent;
+  return `5h ${percent(data?.five_hour?.available_percent)} (${percent(currentFiveHour)}) · wk ${percent(data?.weekly?.total_percent)} (${percent(data?.weekly?.current_percent)})`;
 }
 
 // The private management credential must never be sent to a remote model URL.

@@ -9,7 +9,7 @@ const hostRequire = createRequire(join(npmRoot, "@earendil-works/pi-coding-agent
 const { createJiti } = hostRequire("jiti");
 const jiti = createJiti(import.meta.url, { moduleCache: false, fsCache: false });
 const { registerQuotaStatus, formatRemainingQuota, quotaEndpoint } = await jiti.import("../lib/cliproxyapi-usage.ts");
-const snapshot = { five_hour: { total_percent: 250, available_percent: 225, current_percent: 75 }, weekly: { total_percent: 230, available_percent: 187, current_percent: 28 }, routing_available: true, current_available: true };
+const snapshot = { five_hour: { total_percent: 250, available_percent: 225, current_percent: 75 }, weekly: { total_percent: 187, available_percent: 100, current_percent: 28 }, routing_available: true, current_available: true };
 const flush = async () => { for (let i=0;i<4;i++) await new Promise(setImmediate); };
 
 function host({ fetch, hasUI=true, provider="cliproxyapi", baseUrl="http://127.0.0.1:8317/backend-api" }={}) {
@@ -36,7 +36,7 @@ test("format matches total and current percentage contract",()=>{
  assert.equal(formatRemainingQuota(snapshot),"5h 225% (75%) · wk 187% (28%)");
  assert.equal(formatRemainingQuota(null),"5h ? (?) · wk ? (?)");
  assert.equal(formatRemainingQuota({five_hour:{total_percent:250,available_percent:250,current_percent:null},weekly:{total_percent:0,available_percent:0,current_percent:0}}),"5h 250% (?) · wk 0% (0%)");
- assert.equal(formatRemainingQuota({five_hour:{total_percent:250,available_percent:NaN,current_percent:Infinity},weekly:{total_percent:100,available_percent:-1,current_percent:28.4}}),"5h ? (?) · wk ? (28%)");
+ assert.equal(formatRemainingQuota({five_hour:{total_percent:250,available_percent:NaN,current_percent:Infinity},weekly:{total_percent:-1,available_percent:100,current_percent:28.4}}),"5h ? (?) · wk ? (28%)");
 });
 
 test("loopback endpoint forwards exact session/model and rejects remote URLs",()=>{
@@ -68,7 +68,7 @@ test("switching session/model never displays a previous account's quota",async()
  h.ctx.model={...h.ctx.model,id:"gpt-5.5"};h.ctx.sessionManager.getSessionId=()=>"session-two";h.emit("model_select");await flush();
  assert.equal(oldSignal.aborted,true);assert.equal(h.last,"5h ? (?) · wk ? (?)");assert.equal(h.calls.length,2);
  resolvers[0]({ok:true,json:async()=>snapshot});await flush();assert.equal(h.last,"5h ? (?) · wk ? (?)");
- resolvers[1]({ok:true,json:async()=>({...snapshot,weekly:{total_percent:200,available_percent:150,current_percent:20}})});await flush();assert.equal(h.last,"5h 225% (75%) · wk 150% (20%)");h.close();
+ resolvers[1]({ok:true,json:async()=>({...snapshot,weekly:{total_percent:150,available_percent:50,current_percent:20}})});await flush();assert.equal(h.last,"5h 225% (75%) · wk 150% (20%)");h.close();
 });
 
 test("failures clear stale values without exposing credentials",async()=>{
@@ -82,27 +82,34 @@ test("headless/other providers make no requests and remote endpoints never read 
 });
 
 
-test("exhausted routing displays zero despite remaining unspent budgets", async () => {
+test("exhausted five-hour routing displays zero without discarding weekly budget", async () => {
  let blocked=true;
- const h=host({fetch:async()=>({ok:true,json:async()=>({...snapshot,routing_available:!blocked,current_available:!blocked})})});
+ const h=host({fetch:async()=>({ok:true,json:async()=>({...snapshot,five_hour:{...snapshot.five_hour,available_percent:blocked?0:225},routing_available:!blocked,current_available:!blocked})})});
  h.emit("session_start");await flush();
- assert.equal(h.last,"5h 0% (0%) · wk 0% (0%) · blocked");
+ assert.equal(h.last,"5h 0% (0%) · wk 187% (28%)");
  blocked=false;await h.tick();
  assert.equal(h.last,"5h 225% (75%) · wk 187% (28%)");h.close();
 });
 
 
 test("reserved quota never raises usable totals above the capped 250 percent",()=>{
- const data={five_hour:{total_percent:300,available_percent:250,current_percent:50},weekly:{total_percent:300,available_percent:250,current_percent:50},routing_available:true,current_available:true};
+ const data={five_hour:{total_percent:300,available_percent:250,current_percent:50},weekly:{total_percent:250,available_percent:250,current_percent:50},routing_available:true,current_available:true};
  assert.equal(formatRemainingQuota(data),"5h 250% (50%) · wk 250% (50%)");
 });
 
 test("a weekly-capped account contributes neither five-hour nor weekly usable capacity",()=>{
  const data={five_hour:{total_percent:146,available_percent:100,current_percent:46},weekly:{total_percent:57,available_percent:28,current_percent:0},routing_available:true,current_available:false};
- assert.equal(formatRemainingQuota(data),"5h 100% (0%) · wk 28% (0%)");
+ assert.equal(formatRemainingQuota(data),"5h 100% (0%) · wk 57% (0%)");
 });
 
 test("unknown usable quota never falls back to known unspent budgets",()=>{
  const data={five_hour:{total_percent:146,available_percent:null,current_percent:75},weekly:{total_percent:57,available_percent:null,current_percent:28},routing_available:true,current_available:true};
- assert.equal(formatRemainingQuota(data),"5h ? (75%) · wk ? (28%)");
+ assert.equal(formatRemainingQuota(data),"5h ? (75%) · wk 57% (28%)");
+});
+
+
+test("five-hour exhaustion preserves capped weekly budget and never prints blocked",()=>{
+ const data={five_hour:{total_percent:0,available_percent:0,current_percent:0},weekly:{total_percent:100,available_percent:0,current_percent:100},routing_available:false,current_available:false};
+ assert.equal(formatRemainingQuota(data),"5h 0% (0%) · wk 100% (100%)");
+ assert.ok(!formatRemainingQuota(data).includes("blocked"));
 });
