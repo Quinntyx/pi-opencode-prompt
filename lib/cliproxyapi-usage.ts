@@ -33,13 +33,19 @@ export function formatRemainingQuota(data: RemainingQuota | null): string {
   return `5h ${percent(data?.five_hour?.available_percent)} (${percent(currentFiveHour)}) · wk ${percent(data?.weekly?.total_percent)} (${percent(data?.weekly?.current_percent)})`;
 }
 
-// MagicDNS uses client authorization, never the private management credential.
+// Tailnet quota observation never requires or reads the private management credential.
 export function quotaEndpoint(baseUrl: string | undefined, model: string, session: string): URL {
   const base = new URL(baseUrl ?? "http://127.0.0.1:8317/backend-api");
   const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(base.hostname);
   const magicDNS = /^[a-z0-9-]+\.tail[a-z0-9-]+\.ts\.net$/i.test(base.hostname);
-  if (!["http:", "https:"].includes(base.protocol) || (!loopback && !magicDNS) || base.username || base.password) {
-    throw new Error("Quota status is restricted to loopback or Tailscale MagicDNS");
+  const ipv4 = base.hostname.split(".");
+  const tailnetIPv4 = ipv4.length === 4 && ipv4.every(part => /^\d+$/.test(part) && Number(part) <= 255)
+    && ipv4[0] === "100"
+    && Number(ipv4[1]) >= 64 && Number(ipv4[1]) <= 127;
+  const tailnetIPv6 = /^\[fd7a:115c:a1e0:/i.test(base.hostname);
+  if (!["http:", "https:"].includes(base.protocol)
+    || (!loopback && !magicDNS && !tailnetIPv4 && !tailnetIPv6) || base.username || base.password) {
+    throw new Error("Quota status is restricted to loopback or Tailscale addresses");
   }
   const url = new URL(loopback ? "/v8/management/observability/quota/remaining" : "/v1/quota/remaining", base.origin);
   url.searchParams.set("model", model);
@@ -110,18 +116,17 @@ export function registerQuotaStatus(pi: ExtensionAPI, deps: QuotaDependencies = 
     timeout.unref?.();
     try {
       const url = quotaEndpoint(model.baseUrl, model.id, session);
-      let apiKey: string | undefined;
-      if (url.pathname === "/v1/quota/remaining") {
-        const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-        if (!auth.ok) throw new Error("Client authorization unavailable");
-        apiKey = auth.apiKey;
-      } else {
-        apiKey = JSON.parse(await deps.readSecrets()).management_key;
+      const headers: Record<string, string> = {};
+      if (url.pathname !== "/v1/quota/remaining") {
+        const apiKey = JSON.parse(await deps.readSecrets()).management_key;
+        if (typeof apiKey !== "string" || !apiKey) throw new Error("Missing management authorization key");
+        headers.Authorization = `Bearer ${apiKey}`;
       }
-      if (typeof apiKey !== "string" || !apiKey) throw new Error("Missing quota authorization key");
+      // The read-only tailnet route follows the keyless inference deployment.
+      // Do not require registry auth APIs, client keys, or local secret files.
       if (abort.signal.aborted) return;
       const response = await deps.fetch(url, {
-        headers: { Authorization: `Bearer ${apiKey}` },
+        headers,
         signal: abort.signal,
         redirect: "error",
       });

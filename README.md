@@ -50,9 +50,12 @@ setup remain 250%. There is no `blocked` marker or hardcoded weekly zero.
 Unknown observations remain `?` and connection failures clear stale figures.
 
 The extension uses the public `status-item` event protocol and refreshes every
-five seconds, plus request/model/session boundaries. It requires the fork's
-`GET /v8/management/observability/quota/remaining` management endpoint and reads
-the management key from the private local CLIProxyAPI secrets file (never from
-tracked config). Requests are restricted to a loopback proxy URL and redirects
+five seconds, plus request/model/session boundaries. Loopback URLs use the fork's
+`GET /v8/management/observability/quota/remaining` management endpoint with the
+private local management key (never from tracked config). Tailscale MagicDNS,
+100.64.0.0/10 IPv4 and fd7a:115c:a1e0::/48 IPv6 URLs use the read-only
+`GET /v1/quota/remaining` endpoint without an API key or local secrets, matching
+the tailnet-only, keyless inference deployment. It does not require newer Pi
+registry authorization methods. Other remote hosts, URL credentials and redirects
 are rejected. It stops polling and clears its item when another provider is
 selected or the session shuts down. Provider attribution renders as `CLIProxyAPI`.

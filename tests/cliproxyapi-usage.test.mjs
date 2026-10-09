@@ -115,14 +115,14 @@ test("five-hour exhaustion preserves capped weekly budget and never prints block
 });
 
 
-test("MagicDNS quota uses client authorization, never reads management secrets",async()=>{
+test("MagicDNS quota needs no client authorization or management secrets",async()=>{
  const h=host({baseUrl:"http://araveia.tail985727.ts.net:8317/backend-api"});
  h.emit("session_start");await flush();
  assert.equal(h.last,"5h 225% (75%) · wk 187% (28%)");
  assert.equal(h.reads,0);assert.equal(h.calls.length,1);
  assert.equal(h.calls[0].url.pathname,"/v1/quota/remaining");
  assert.equal(h.calls[0].url.hostname,"araveia.tail985727.ts.net");
- assert.equal(h.calls[0].options.headers.Authorization,"Bearer test-client-key");
+ assert.deepEqual(h.calls[0].options.headers,{});
  assert.equal(h.calls[0].options.redirect,"error");h.close();
 });
 
@@ -130,4 +130,43 @@ test("MagicDNS rejects deceptive hosts and userinfo",()=>{
  assert.equal(quotaEndpoint("https://araveia.tail985727.ts.net","model","session").pathname,"/v1/quota/remaining");
  for(const host of ["http://araveia.tail985727.ts.net.evil.test","http://tail985727.ts.net","http://a.tail985727.ts.net@evil.test","http://user:pass@a.tail985727.ts.net"])
   assert.throws(()=>quotaEndpoint(host,"model","session"));
+});
+
+
+test("tailnet polling works on older Pi without registry auth methods",async()=>{
+ const h=host({baseUrl:"http://araveia.tail985727.ts.net:8317/backend-api"});
+ h.ctx.modelRegistry={};h.emit("session_start");await flush();
+ assert.equal(h.last,"5h 225% (75%) · wk 187% (28%)");
+ assert.equal(h.reads,0);assert.equal(h.calls.length,1);
+ assert.deepEqual(h.calls[0].options.headers,{});h.close();
+});
+
+test("tailnet polling never resolves client credentials, even if resolution fails",async()=>{
+ const h=host({baseUrl:"http://araveia.tail985727.ts.net:8317/backend-api"});
+ h.ctx.modelRegistry.getApiKeyAndHeaders=async()=>{throw new Error("must not resolve auth");};
+ h.emit("session_start");await flush();
+ assert.equal(h.last,"5h 225% (75%) · wk 187% (28%)");
+ assert.equal(h.reads,0);assert.equal(h.calls.length,1);h.close();
+});
+
+test("Tailscale addresses use read-only quota routes; deceptive hosts stay blocked",()=>{
+ for(const base of ["http://100.64.0.1:8317/backend-api","http://100.127.255.254:8317/backend-api",
+  "http://[fd7a:115c:a1e0::1]:8317/backend-api"]) {
+  const url=quotaEndpoint(base,"gpt-6.1-sol","remote-session");
+  assert.equal(url.pathname,"/v1/quota/remaining");
+  assert.equal(url.searchParams.get("session_id"),"remote-session");
+ }
+ for(const base of ["http://100.63.255.255:8317","http://100.128.0.0:8317",
+  "http://[fd7a:115c:a1e1::1]:8317","http://192.168.1.1:8317","http://100.64.evil.test:8317"]) {
+  assert.throws(()=>quotaEndpoint(base,"model","session"));
+ }
+});
+
+test("direct tailnet address polling never accesses management credentials",async()=>{
+ const h=host({baseUrl:"http://100.110.255.43:8317/backend-api"});
+ h.ctx.modelRegistry={};h.emit("session_start");await flush();
+ assert.equal(h.last,"5h 225% (75%) · wk 187% (28%)");
+ assert.equal(h.reads,0);assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].url.pathname,"/v1/quota/remaining");
+ assert.deepEqual(h.calls[0].options.headers,{});h.close();
 });
