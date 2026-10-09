@@ -33,13 +33,15 @@ export function formatRemainingQuota(data: RemainingQuota | null): string {
   return `5h ${percent(data?.five_hour?.available_percent)} (${percent(currentFiveHour)}) · wk ${percent(data?.weekly?.total_percent)} (${percent(data?.weekly?.current_percent)})`;
 }
 
-// The private management credential must never be sent to a remote model URL.
+// MagicDNS uses client authorization, never the private management credential.
 export function quotaEndpoint(baseUrl: string | undefined, model: string, session: string): URL {
   const base = new URL(baseUrl ?? "http://127.0.0.1:8317/backend-api");
-  if (!["http:", "https:"].includes(base.protocol) || !["127.0.0.1", "localhost", "[::1]"].includes(base.hostname) || base.username || base.password) {
-    throw new Error("Quota management is restricted to the local CLIProxyAPI server");
+  const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(base.hostname);
+  const magicDNS = /^[a-z0-9-]+\.tail[a-z0-9-]+\.ts\.net$/i.test(base.hostname);
+  if (!["http:", "https:"].includes(base.protocol) || (!loopback && !magicDNS) || base.username || base.password) {
+    throw new Error("Quota status is restricted to loopback or Tailscale MagicDNS");
   }
-  const url = new URL("/v8/management/observability/quota/remaining", base.origin);
+  const url = new URL(loopback ? "/v8/management/observability/quota/remaining" : "/v1/quota/remaining", base.origin);
   url.searchParams.set("model", model);
   url.searchParams.set("session_id", session);
   return url;
@@ -108,11 +110,18 @@ export function registerQuotaStatus(pi: ExtensionAPI, deps: QuotaDependencies = 
     timeout.unref?.();
     try {
       const url = quotaEndpoint(model.baseUrl, model.id, session);
-      const secrets = JSON.parse(await deps.readSecrets());
-      if (typeof secrets.management_key !== "string" || !secrets.management_key) throw new Error("Missing management key");
+      let apiKey: string | undefined;
+      if (url.pathname === "/v1/quota/remaining") {
+        const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+        if (!auth.ok) throw new Error("Client authorization unavailable");
+        apiKey = auth.apiKey;
+      } else {
+        apiKey = JSON.parse(await deps.readSecrets()).management_key;
+      }
+      if (typeof apiKey !== "string" || !apiKey) throw new Error("Missing quota authorization key");
       if (abort.signal.aborted) return;
       const response = await deps.fetch(url, {
-        headers: { Authorization: `Bearer ${secrets.management_key}` },
+        headers: { Authorization: `Bearer ${apiKey}` },
         signal: abort.signal,
         redirect: "error",
       });

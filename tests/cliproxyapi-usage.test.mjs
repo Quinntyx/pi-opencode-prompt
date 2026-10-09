@@ -15,7 +15,7 @@ const flush = async () => { for (let i=0;i<4;i++) await new Promise(setImmediate
 function host({ fetch, hasUI=true, provider="cliproxyapi", baseUrl="http://127.0.0.1:8317/backend-api" }={}) {
  const events=new Map(),bus=new Map(),items=[],calls=[];
  let clock=10000, interval, stopped=0,reads=0;
- const ctx={hasUI,model:{provider,id:"gpt-6.1-sol",baseUrl},sessionManager:{getSessionId:()=>"session-one"}};
+ const ctx={hasUI,model:{provider,id:"gpt-6.1-sol",baseUrl},modelRegistry:{getApiKeyAndHeaders:async()=>({ok:true,apiKey:"test-client-key"})},sessionManager:{getSessionId:()=>"session-one"}};
  const deps={
   now:()=>clock,
   readSecrets:async()=>{reads++;return JSON.stringify({management_key:"test-only-key"});},
@@ -112,4 +112,22 @@ test("five-hour exhaustion preserves capped weekly budget and never prints block
  const data={five_hour:{total_percent:0,available_percent:0,current_percent:0},weekly:{total_percent:100,available_percent:0,current_percent:100},routing_available:false,current_available:false};
  assert.equal(formatRemainingQuota(data),"5h 0% (0%) · wk 100% (100%)");
  assert.ok(!formatRemainingQuota(data).includes("blocked"));
+});
+
+
+test("MagicDNS quota uses client authorization, never reads management secrets",async()=>{
+ const h=host({baseUrl:"http://araveia.tail985727.ts.net:8317/backend-api"});
+ h.emit("session_start");await flush();
+ assert.equal(h.last,"5h 225% (75%) · wk 187% (28%)");
+ assert.equal(h.reads,0);assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].url.pathname,"/v1/quota/remaining");
+ assert.equal(h.calls[0].url.hostname,"araveia.tail985727.ts.net");
+ assert.equal(h.calls[0].options.headers.Authorization,"Bearer test-client-key");
+ assert.equal(h.calls[0].options.redirect,"error");h.close();
+});
+
+test("MagicDNS rejects deceptive hosts and userinfo",()=>{
+ assert.equal(quotaEndpoint("https://araveia.tail985727.ts.net","model","session").pathname,"/v1/quota/remaining");
+ for(const host of ["http://araveia.tail985727.ts.net.evil.test","http://tail985727.ts.net","http://a.tail985727.ts.net@evil.test","http://user:pass@a.tail985727.ts.net"])
+  assert.throws(()=>quotaEndpoint(host,"model","session"));
 });
