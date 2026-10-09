@@ -32,11 +32,11 @@ function host({ fetch, hasUI=true, provider="cliproxyapi", baseUrl="http://127.0
  };
 }
 
-test("format matches total and current percentage contract",()=>{
- assert.equal(formatRemainingQuota(snapshot),"5h 225% (75%) · wk 187% (28%)");
+test("format leads with current account and puts aggregate pool in parentheses",()=>{
+ assert.equal(formatRemainingQuota(snapshot),"5h 75% (225%) · wk 28% (187%)");
  assert.equal(formatRemainingQuota(null),"5h ? (?) · wk ? (?)");
- assert.equal(formatRemainingQuota({five_hour:{total_percent:250,available_percent:250,current_percent:null},weekly:{total_percent:0,available_percent:0,current_percent:0}}),"5h 250% (?) · wk 0% (0%)");
- assert.equal(formatRemainingQuota({five_hour:{total_percent:250,available_percent:NaN,current_percent:Infinity},weekly:{total_percent:-1,available_percent:100,current_percent:28.4}}),"5h ? (?) · wk ? (28%)");
+ assert.equal(formatRemainingQuota({five_hour:{total_percent:250,available_percent:250,current_percent:null},weekly:{total_percent:0,available_percent:0,current_percent:0}}),"5h ? (250%) · wk 0% (0%)");
+ assert.equal(formatRemainingQuota({five_hour:{total_percent:250,available_percent:NaN,current_percent:Infinity},weekly:{total_percent:-1,available_percent:100,current_percent:28.4}}),"5h ? (?) · wk 28% (?)");
 });
 
 test("loopback endpoint forwards exact session/model and rejects remote URLs",()=>{
@@ -48,10 +48,10 @@ test("loopback endpoint forwards exact session/model and rejects remote URLs",()
 
 test("polls local management API and republishes via generic footer protocol",async()=>{
  const h=host();h.emit("session_start");await flush();
- assert.equal(h.last,"5h 225% (75%) · wk 187% (28%)");assert.equal(h.calls.length,1);
+ assert.equal(h.last,"5h 75% (225%) · wk 28% (187%)");assert.equal(h.calls.length,1);
  assert.equal(h.calls[0].url.searchParams.get("session_id"),"session-one");assert.equal(h.calls[0].url.searchParams.get("model"),"gpt-6.1-sol");
  assert.equal(h.calls[0].options.headers.Authorization,"Bearer test-only-key");assert.equal(h.calls[0].options.redirect,"error");
- h.request();await flush();assert.equal(h.last,"5h 225% (75%) · wk 187% (28%)");assert.equal(h.calls.length,1);
+ h.request();await flush();assert.equal(h.last,"5h 75% (225%) · wk 28% (187%)");assert.equal(h.calls.length,1);
  await h.tick();assert.equal(h.calls.length,2);h.close();assert.equal(h.last,null);assert.equal(h.stopped,1);
 });
 
@@ -68,7 +68,7 @@ test("switching session/model never displays a previous account's quota",async()
  h.ctx.model={...h.ctx.model,id:"gpt-5.5"};h.ctx.sessionManager.getSessionId=()=>"session-two";h.emit("model_select");await flush();
  assert.equal(oldSignal.aborted,true);assert.equal(h.last,"5h ? (?) · wk ? (?)");assert.equal(h.calls.length,2);
  resolvers[0]({ok:true,json:async()=>snapshot});await flush();assert.equal(h.last,"5h ? (?) · wk ? (?)");
- resolvers[1]({ok:true,json:async()=>({...snapshot,weekly:{total_percent:150,available_percent:50,current_percent:20}})});await flush();assert.equal(h.last,"5h 225% (75%) · wk 150% (20%)");h.close();
+ resolvers[1]({ok:true,json:async()=>({...snapshot,weekly:{total_percent:150,available_percent:50,current_percent:20}})});await flush();assert.equal(h.last,"5h 75% (225%) · wk 20% (150%)");h.close();
 });
 
 test("failures clear stale values without exposing credentials",async()=>{
@@ -86,25 +86,25 @@ test("exhausted five-hour routing displays zero without discarding weekly budget
  let blocked=true;
  const h=host({fetch:async()=>({ok:true,json:async()=>({...snapshot,five_hour:{...snapshot.five_hour,available_percent:blocked?0:225},routing_available:!blocked,current_available:!blocked})})});
  h.emit("session_start");await flush();
- assert.equal(h.last,"5h 0% (0%) · wk 187% (28%)");
+ assert.equal(h.last,"5h 0% (0%) · wk 28% (187%)");
  blocked=false;await h.tick();
- assert.equal(h.last,"5h 225% (75%) · wk 187% (28%)");h.close();
+ assert.equal(h.last,"5h 75% (225%) · wk 28% (187%)");h.close();
 });
 
 
 test("reserved quota never raises usable totals above the capped 250 percent",()=>{
  const data={five_hour:{total_percent:300,available_percent:250,current_percent:50},weekly:{total_percent:250,available_percent:250,current_percent:50},routing_available:true,current_available:true};
- assert.equal(formatRemainingQuota(data),"5h 250% (50%) · wk 250% (50%)");
+ assert.equal(formatRemainingQuota(data),"5h 50% (250%) · wk 50% (250%)");
 });
 
 test("a weekly-capped account contributes neither five-hour nor weekly usable capacity",()=>{
  const data={five_hour:{total_percent:146,available_percent:100,current_percent:46},weekly:{total_percent:57,available_percent:28,current_percent:0},routing_available:true,current_available:false};
- assert.equal(formatRemainingQuota(data),"5h 100% (0%) · wk 57% (0%)");
+ assert.equal(formatRemainingQuota(data),"5h 0% (100%) · wk 0% (57%)");
 });
 
 test("unknown usable quota never falls back to known unspent budgets",()=>{
  const data={five_hour:{total_percent:146,available_percent:null,current_percent:75},weekly:{total_percent:57,available_percent:null,current_percent:28},routing_available:true,current_available:true};
- assert.equal(formatRemainingQuota(data),"5h ? (75%) · wk 57% (28%)");
+ assert.equal(formatRemainingQuota(data),"5h 75% (?) · wk 28% (57%)");
 });
 
 
@@ -118,7 +118,7 @@ test("five-hour exhaustion preserves capped weekly budget and never prints block
 test("MagicDNS quota needs no client authorization or management secrets",async()=>{
  const h=host({baseUrl:"http://araveia.tail985727.ts.net:8317/backend-api"});
  h.emit("session_start");await flush();
- assert.equal(h.last,"5h 225% (75%) · wk 187% (28%)");
+ assert.equal(h.last,"5h 75% (225%) · wk 28% (187%)");
  assert.equal(h.reads,0);assert.equal(h.calls.length,1);
  assert.equal(h.calls[0].url.pathname,"/v1/quota/remaining");
  assert.equal(h.calls[0].url.hostname,"araveia.tail985727.ts.net");
@@ -136,7 +136,7 @@ test("MagicDNS rejects deceptive hosts and userinfo",()=>{
 test("tailnet polling works on older Pi without registry auth methods",async()=>{
  const h=host({baseUrl:"http://araveia.tail985727.ts.net:8317/backend-api"});
  h.ctx.modelRegistry={};h.emit("session_start");await flush();
- assert.equal(h.last,"5h 225% (75%) · wk 187% (28%)");
+ assert.equal(h.last,"5h 75% (225%) · wk 28% (187%)");
  assert.equal(h.reads,0);assert.equal(h.calls.length,1);
  assert.deepEqual(h.calls[0].options.headers,{});h.close();
 });
@@ -145,7 +145,7 @@ test("tailnet polling never resolves client credentials, even if resolution fail
  const h=host({baseUrl:"http://araveia.tail985727.ts.net:8317/backend-api"});
  h.ctx.modelRegistry.getApiKeyAndHeaders=async()=>{throw new Error("must not resolve auth");};
  h.emit("session_start");await flush();
- assert.equal(h.last,"5h 225% (75%) · wk 187% (28%)");
+ assert.equal(h.last,"5h 75% (225%) · wk 28% (187%)");
  assert.equal(h.reads,0);assert.equal(h.calls.length,1);h.close();
 });
 
@@ -165,7 +165,7 @@ test("Tailscale addresses use read-only quota routes; deceptive hosts stay block
 test("direct tailnet address polling never accesses management credentials",async()=>{
  const h=host({baseUrl:"http://100.110.255.43:8317/backend-api"});
  h.ctx.modelRegistry={};h.emit("session_start");await flush();
- assert.equal(h.last,"5h 225% (75%) · wk 187% (28%)");
+ assert.equal(h.last,"5h 75% (225%) · wk 28% (187%)");
  assert.equal(h.reads,0);assert.equal(h.calls.length,1);
  assert.equal(h.calls[0].url.pathname,"/v1/quota/remaining");
  assert.deepEqual(h.calls[0].options.headers,{});h.close();

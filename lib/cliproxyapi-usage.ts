@@ -27,10 +27,10 @@ function percent(value: unknown): string {
 }
 
 export function formatRemainingQuota(data: RemainingQuota | null): string {
-  // Five-hour capacity is immediately usable; weekly budget survives a
-  // temporary five-hour cooldown. Both are already adjusted for operator caps.
+  // Lead with the selected account's remaining quota; keep aggregate pool
+  // capacity in parentheses as supporting routing context.
   const currentFiveHour = data?.current_available === false ? 0 : data?.five_hour?.current_percent;
-  return `5h ${percent(data?.five_hour?.available_percent)} (${percent(currentFiveHour)}) · wk ${percent(data?.weekly?.total_percent)} (${percent(data?.weekly?.current_percent)})`;
+  return `5h ${percent(currentFiveHour)} (${percent(data?.five_hour?.available_percent)}) · wk ${percent(data?.weekly?.current_percent)} (${percent(data?.weekly?.total_percent)})`;
 }
 
 // Tailnet quota observation never requires or reads the private management credential.

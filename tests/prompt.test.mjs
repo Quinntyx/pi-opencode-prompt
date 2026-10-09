@@ -225,8 +225,8 @@ test("autocomplete stays above the separated activity row", () => {
 
 test("CLIProxyAPI attribution and generic quota item appear in the bottom status cluster",()=>{
  const h=host({modelProvider:"cliproxyapi"});
- h.statusItem({key:"cliproxyapi-quota",text:"5h 225% (75%) · wk 187% (28%)"});
+ h.statusItem({key:"cliproxyapi-quota",text:"5h 75% (225%) · wk 28% (187%)"});
  const rows=h.editor.render(220).map(clean);
- assert.ok(rows.some(row=>row.includes("CLIProxyAPI") && row.includes("5h 225% (75%) · wk 187% (28%)")),rows.join("\n"));
- h.statusItem({key:"cliproxyapi-quota",text:null});assert.ok(!h.editor.render(220).map(clean).some(row=>row.includes("5h 225%")));h.close();
+ assert.ok(rows.some(row=>row.includes("CLIProxyAPI") && row.includes("5h 75% (225%) · wk 28% (187%)")),rows.join("\n"));
+ h.statusItem({key:"cliproxyapi-quota",text:null});assert.ok(!h.editor.render(220).map(clean).some(row=>row.includes("5h 75%")));h.close();
 });
