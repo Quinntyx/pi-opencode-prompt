@@ -14,7 +14,13 @@ export interface QuotaWindow {
   available_percent: number | null;
   current_percent: number | null;
 }
+export interface RemainingQuotaAccount {
+  plan_type: string;
+  five_hour_cap_percent: number;
+  weekly_cap_percent: number;
+}
 export interface RemainingQuota {
+  current_account?: RemainingQuotaAccount | null;
   five_hour: QuotaWindow;
   weekly: QuotaWindow;
   routing_available?: boolean;
@@ -26,11 +32,22 @@ function percent(value: unknown): string {
     ? `${Math.round(value)}%` : "?";
 }
 
+export function formatRoutedAccount(account: RemainingQuotaAccount | null | undefined): string {
+  switch (account?.plan_type?.trim().toLowerCase()) {
+    case "plus": return "Personal";
+    case "team":
+    case "business":
+      if (account.five_hour_cap_percent === 50 || account.weekly_cap_percent === 50) return "Business (David)";
+      if (account.five_hour_cap_percent === 100 && account.weekly_cap_percent === 100) return "Business";
+  }
+  return "Account ?";
+}
+
 export function formatRemainingQuota(data: RemainingQuota | null): string {
   // Lead with the selected account's remaining quota; keep aggregate pool
   // capacity in parentheses as supporting routing context.
   const currentFiveHour = data?.current_available === false ? 0 : data?.five_hour?.current_percent;
-  return `5h ${percent(currentFiveHour)} (${percent(data?.five_hour?.available_percent)}) · wk ${percent(data?.weekly?.current_percent)} (${percent(data?.weekly?.total_percent)})`;
+  return `${formatRoutedAccount(data?.current_account)} · 5h ${percent(currentFiveHour)} (${percent(data?.five_hour?.available_percent)}) · wk ${percent(data?.weekly?.current_percent)} (${percent(data?.weekly?.total_percent)})`;
 }
 
 // Tailnet quota observation never requires or reads the private management credential.

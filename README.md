@@ -37,12 +37,17 @@ Set `PI_TEST_NPM_ROOT` if Pi is installed outside the default global npm root.
 ## CLIProxyAPI quota footer
 
 When a `cliproxyapi` model is selected, the bottom status cluster shows
-`5h 75% (225%) · wk 28% (187%)`. Leading values show the usable remainder on
+`Personal · 5h 75% (225%) · wk 28% (187%)`. Leading values show the usable remainder on
 this session + model's affinity-bound account. Parenthesized totals sum usable
 percentage points across enabled, distinct Codex subscriptions after operator
 caps; the current shared 50% + two 100% account setup has a maximum of 250% per
 window.
-They show `?` before the first routed request, not a guessed account. Five-hour
+The account name comes from this session + model's actual affinity binding,
+not the next preferred account: `Personal` for Plus, `Business (David)` for the
+50%-capped Business seat, and `Business` for the uncapped Business seat.
+Before the first binding (or against older servers), it shows `Account ?`.
+Model/session changes and connection failures clear stale account names.
+Quota figures show `?` before the first routed request, not a guessed account. Five-hour
 totals use immediately available capacity; weekly totals show the independent
 remaining weekly budget. Exhausting a five-hour window does not erase the weekly
 remainder, which becomes spendable again after the short reset. Both windows
