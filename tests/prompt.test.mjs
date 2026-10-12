@@ -23,7 +23,7 @@ const { default: extension } = await jiti.import("../extensions/opencode-prompt.
 const key = Symbol.for("pi-activity:api");
 const clean = (text) => text.replace(/\x1b\[[0-9;]*m/g, "");
 
-function host({ working = false, hasUI = true, provider = true, workedMs = 0, modelProvider = "test" } = {}) {
+function host({ working = false, hasUI = true, provider = true, workedMs = 0, modelProvider = "test", contextUsage = { tokens: 100, contextWindow: 1000, percent: 10 } } = {}) {
   let state = { isWorking: working, label: working ? "exploring" : null };
   let stats = { workedMs };
   let subscriber;
@@ -66,8 +66,9 @@ function host({ working = false, hasUI = true, provider = true, workedMs = 0, mo
     hasUI,
     mode: "test",
     cwd: "/tmp",
+    sessionManager: { getSessionId: () => "fixture-session" },
     model: { id: "test-model", provider: modelProvider, contextWindow: 1000 },
-    getContextUsage: () => ({ tokens: 100, contextWindow: 1000, percent: 10 }),
+    getContextUsage: () => contextUsage,
     ui: {
       theme,
       setWorkingVisible() {},
@@ -230,3 +231,35 @@ test("CLIProxyAPI attribution and generic quota item appear in the bottom status
  assert.ok(rows.some(row=>row.includes("CLIProxyAPI") && row.includes("5h 75% (225%) · wk 28% (187%)")),rows.join("\n"));
  h.statusItem({key:"cliproxyapi-quota",text:null});assert.ok(!h.editor.render(220).map(clean).some(row=>row.includes("5h 75%")));h.close();
 });
+
+for (const tokens of [null, NaN, Infinity, -1]) {
+  test(`unknown or invalid context usage ${tokens} never renders a fabricated zero`, () => {
+    const h = host({ contextUsage: { tokens, contextWindow: 1000, percent: null } });
+    try { assert.match(clean(h.editor.render(240).join("\n")), /ctx \?\/1k \(\?\)/); }
+    finally { h.close(); }
+  });
+}
+
+test("context percentage follows token count rather than a stale host percentage", () => {
+  const h = host({ contextUsage: { tokens: 1200, contextWindow: 1000, percent: 10 } });
+  try { assert.match(clean(h.editor.render(240).join("\n")), /ctx 1k\/1k \(120%\)/); }
+  finally { h.close(); }
+});
+
+for (const tokens of [400, 1500]) {
+  test(`the editor shows scoped projected context ${tokens} instead of a raw-tree estimate`, () => {
+    const symbol = Symbol.for("billion-context-pi.live-context-usage.v1");
+    const previous = Reflect.get(globalThis, symbol);
+    Reflect.set(globalThis, symbol, { version: 1, get: (query) => ({ ...query, tokens, source: "sent-view-estimate" }) });
+    const h = host({ contextUsage: { tokens: 3000000, contextWindow: 1000, percent: 300000 } });
+    try {
+      const painted = clean(h.editor.render(240).join("\n"));
+      assert.match(painted, tokens === 400 ? /ctx 400\/1k \(40%\)/ : /ctx 2k\/1k \(150%\)/);
+      assert.doesNotMatch(painted, /ctx 3m/);
+    } finally {
+      h.close();
+      if (previous === undefined) Reflect.deleteProperty(globalThis, symbol);
+      else Reflect.set(globalThis, symbol, previous);
+    }
+  });
+}

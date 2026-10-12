@@ -9,6 +9,7 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { getDisplayContextUsage } from "../lib/context-usage.js";
 import {
   activityRefreshInterval,
   getActivityApi,
@@ -72,12 +73,15 @@ function formatTokens(tokens: number): string {
 }
 
 function formatContext(ctx: ExtensionContext): string {
-  const usage = ctx.getContextUsage();
+  const usage = getDisplayContextUsage(ctx);
   const contextWindow = usage?.contextWindow ?? ctx.model?.contextWindow;
   if (!contextWindow || !usage) return "ctx ?";
-  const percent =
-    usage.percent === null ? "?" : `${Math.round(usage.percent)}%`;
-  return `ctx ${formatTokens(usage.tokens)}/${formatTokens(contextWindow)} (${percent})`;
+  const tokens = usage.tokens;
+  if (tokens === null || !Number.isFinite(tokens) || tokens < 0) {
+    return `ctx ?/${formatTokens(contextWindow)} (?)`;
+  }
+  const percent = `${Math.round(tokens / contextWindow * 100)}%`;
+  return `ctx ${formatTokens(tokens)}/${formatTokens(contextWindow)} (${percent})`;
 }
 
 function readPtcTokensSaved(): number {

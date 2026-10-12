@@ -65,3 +65,13 @@ the tailnet-only, keyless inference deployment. It does not require newer Pi
 registry authorization methods. Other remote hosts, URL credentials and redirects
 are rejected. It stops polling and clears its item when another provider is
 selected or the session shuts down. Provider attribution renders as `CLIProxyAPI`.
+
+## Live context counter
+
+With billion-context-pi, the context counter uses its session/model-scoped
+sent-view estimate rather than Pi's raw saved-session fallback. This avoids
+counting archived, already-folded history again after an error or abort.
+The denominator is the selected model's real context window. Until a valid
+projection is available, the counter shows `?`; genuine projected overflow
+stays visible rather than being clamped away. Without billion-context-pi,
+the native Pi counter remains in use.
