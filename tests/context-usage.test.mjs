@@ -32,10 +32,16 @@ test("genuine sent-view overflow is not clamped to the model window", () => with
   assert.equal(getDisplayContextUsage(ctx).tokens, 3000000);
   assert.ok(getDisplayContextUsage(ctx).percent > 1000);
 }));
-for (const invalid of [undefined, { ...usage, sessionId: "old" }, { ...usage, modelId: "old" },
+test("a registry without a sample for this model keeps the native counter", () => withRegistry({ version: 1, get: () => undefined }, () => {
+  assert.equal(getDisplayContextUsage(ctx).tokens, 3000000);
+}));
+test("a registry keyed to another model does not blank the counter", () => withRegistry({ version: 1, get: (q) => q.modelId === "other" ? usage : undefined }, () => {
+  assert.equal(getDisplayContextUsage(ctx).tokens, 3000000);
+}));
+for (const invalid of [{ ...usage, sessionId: "old" }, { ...usage, modelId: "old" },
   { ...usage, provider: "old" }, { ...usage, source: "raw-tree" }, { ...usage, tokens: null },
   { ...usage, tokens: NaN }, { ...usage, tokens: Infinity }, { ...usage, tokens: -1 }]) {
-  test(`missing/stale/invalid ACP sample never falls back to the raw tree: ${JSON.stringify(invalid)}`, () =>
+  test(`stale/invalid ACP sample never falls back to the raw tree: ${JSON.stringify(invalid)}`, () =>
     withRegistry({ version: 1, get: () => invalid }, () => assert.deepEqual(getDisplayContextUsage(ctx), {
       tokens: null, contextWindow: 272000, percent: null,
     })));

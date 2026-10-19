@@ -71,7 +71,11 @@ selected or the session shuts down. Provider attribution renders as `CLIProxyAPI
 With billion-context-pi, the context counter uses its session/model-scoped
 sent-view estimate rather than Pi's raw saved-session fallback. This avoids
 counting archived, already-folded history again after an error or abort.
-The denominator is the selected model's real context window. Until a valid
-projection is available, the counter shows `?`; genuine projected overflow
-stays visible rather than being clamped away. Without billion-context-pi,
-the native Pi counter remains in use.
+The denominator is the selected model's real context window. When ACP publishes
+no projection for the current session, model and provider, it is not managing
+that model (for example when ACP is disabled for it) and the counter falls back
+to the native Pi number instead of showing `?`. An invalid projection for the
+session is still ignored rather than trusted, genuine projected overflow stays
+visible rather than being clamped away, and the counter shows `?` only when
+neither source has a usable number. Without billion-context-pi, the native Pi
+counter remains in use.

@@ -7,7 +7,12 @@ export interface DisplayContextUsage {
   percent: number | null;
 }
 
-/** Use the sent view, never the saved-tree fallback, when ACP owns context. */
+/**
+ * Use the sent view when ACP owns context. ACP publishes a projection on every
+ * request for the models it manages, so a missing projection means it is not
+ * managing this session/model/provider (for example ACP is disabled for that
+ * model) and the native Pi counter is the right number to show.
+ */
 export function getDisplayContextUsage(ctx: ExtensionContext): DisplayContextUsage | undefined {
   const registry = Reflect.get(globalThis, LIVE_CONTEXT_USAGE) as
     | { version?: unknown; get?: unknown } | undefined;
@@ -23,14 +28,15 @@ export function getDisplayContextUsage(ctx: ExtensionContext): DisplayContextUsa
     const provider = ctx.model?.provider;
     if (!sessionId || !modelId) return unknown;
     const usage = registry.get({ sessionId, modelId, provider });
-    if (!usage || usage.sessionId !== sessionId || usage.modelId !== modelId ||
+    if (!usage) return ctx.getContextUsage();
+    if (usage.sessionId !== sessionId || usage.modelId !== modelId ||
         usage.provider !== provider || usage.source !== "sent-view-estimate" ||
         typeof usage.tokens !== "number" || !Number.isFinite(usage.tokens) || usage.tokens < 0) {
       return unknown;
     }
     return { tokens: usage.tokens, contextWindow, percent: usage.tokens / contextWindow * 100 };
   } catch {
-    // A missing/failed projection isn't permission to display raw archived history.
+    // A failing projection lookup may still be mid-fold, so don't display raw archived history.
     return unknown;
   }
 }
